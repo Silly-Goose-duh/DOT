@@ -13,15 +13,16 @@ scheduling) are implemented and verified by unit tests. Milestones 3-5 and 7 are
 
 ## Requirements
 
-- JDK 17
-- Android SDK: platform 35, build-tools 35.0.0
-- Gradle 8.11+
+JDK 17+ · Android SDK platform 35 + build-tools 35.0.0 · Gradle 8.11+ (wrapper included).
 
-Point `local.properties` at your SDK:
+Point `local.properties` at your SDK (gitignored, machine-specific):
 
 ```
 sdk.dir=D\:\\Android\\Sdk
 ```
+
+Full setup, including how to install the SDK and the gotchas that will bite you,
+is in **[BUILDING.md](BUILDING.md)**.
 
 ## Build and test
 
@@ -71,6 +72,13 @@ Input -> CommandRouter
 Persistent namespaces (`user_facts`, `preferences`) never expire. Cache namespaces
 carry explicit TTLs: session context 30 min, recent tool results 15 min, inbox summary
 24 h. `MemoryRepository.clearAll()` backs the "clear local memory" control.
+
+## Full status
+
+[BUILDING.md](BUILDING.md) covers setup and known issues.
+[REPORT.txt](REPORT.txt) has the detailed build report, including the two security
+and correctness bugs the app-module tests caught.
+[MILESTONES.md](MILESTONES.md) tracks per-milestone state.
 
 ## What is not built
 

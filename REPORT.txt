@@ -1,48 +1,101 @@
 *DOT v0.1 — Build Report*
 
-*Status: Milestones 0–2 COMPLETE. Build green: 96 tests, 0 failures.*
+*Status: Milestones 0–2 + :app module COMPLETE. 115 tests, 0 failures. Builds an installable APK.*
 
-*Toolchain installed (was empty before)*
-• JDK 17.0.20.1
-• Android SDK: platform-35, build-tools 35.0.0, platform-tools
-• Gradle 8.11.1
-(put on D: — C: had only 15 GB free)
+*Last run: 2026-09-30 · commit 17bb338 · pushed to origin/main*
 
-*What was built* — D:\Android\dot
-• core:model — entities, ActionResult/ActionOutcome, TodayAggregator
-• core:database — Room, 7 entities, 7 DAOs
+*Toolchain (was empty before — see BUILDING.md)*
+• JDK 21.0.12 (project targets 17; AGP 8.7.3 accepts 21 and it built clean)
+• Android SDK at D:\Android\Sdk — platform-35, build-tools 35.0.0, platform-tools
+• Gradle 8.11.1 at D:\tools\gradle-8.11.1 (wrapper now committed in-repo)
+C: had only 13 GB free, so the toolchain went on D:.
+
+*What was built* — C:\Users\tjj52\DOT
+• core:model — domain entities, ActionResult/ActionOutcome, TodayAggregator, repository ports
 • core:common — LogRedactor, structured log events
+• core:database — Room, 7 entities, 7 DAOs, schema v1
+• core:data — Room-backed implementations of the ports
 • agent:router — DeterministicRouter, DateTimeParser, DirectResponseFormatter
 • agent:policy — PolicyEngine (risk/confirmation, model-independent)
 • agent:tools — typed tool registry, input guards, 13-app allowlist
 • agent:memory — persistent memory vs TTL cache
+• app — Compose UI, AppContainer DI, CommandRuntime, AlarmManager reminders
 
-22 Kotlin files, 1661 lines main code, 8 test files.
+*NEW — the first installable APK*
+app/build/outputs/apk/debug/app-debug.apk
+  10.9 MB · com.dot.app · versionCode 1 · minSdk 26 · targetSdk 35 · debug-signed
+  Build: ./gradlew :app:assembleDebug
 
-*Verified by real test run*
+• Compose UI: Today / Ask / Tasks / Notes / Settings
+• AppContainer — hand-rolled DI root, no DI framework
+• CommandRuntime — router → PolicyEngine → ToolRegistry → ActionResult → one sentence
+• ReminderScheduler — AlarmManager + notification channel + reboot reschedule
+• SettingsStore — DataStore; clear-local-memory and purge-expired
+• Notification permission UX for Android 13+
+
+*TWO REAL BUGS the new tests caught*
+
+1. open_app accepted ANY well-formed package name.
+   InputGuards.packageRef matched PACKAGE_REGEX, so "open com.evil.backdoor"
+   passed validation, execute() returned the raw string, and the UI reported
+   "Opening." — the exact opposite of the documented allowlist. The guard claimed
+   to be an allowlist but was only a syntax check.
+   Fixed: allowlist membership only. Regression test added.
+
+2. get_today never ran at all.
+   ToolRegistry cast every tool to DotTool<Map<String,String?>, _>, so the
+   DotTool<Unit, _> tool received an empty map and threw ClassCastException on
+   the synthetic bridge — surfacing as tool_error, not as the tool executing.
+   Latent since the original commit; only appeared once something actually
+   invoked the registry.
+   Fixed: added the UnitInputTool marker so the registry dispatches on the real
+   input type. Regression test added.
+
+*Also fixed while in here*
+• Memory expiry DAO comparison < → <=. invalidate() stamps expiresAt = now, so the
+  documented "expiring exactly now counts as invalid" rule did not hold.
+• Added one-shot suspend DAO reads — the ports are suspending but the DAOs only
+  exposed Flow queries.
+• Moved repository ports agent:tools → core:model. Without this, :core:data would
+  have to depend on the agent layer to implement them.
+• core:database now exposes Room as `api` — DotDatabase extends RoomDatabase, so
+  any caller constructing one needs Room on its compile classpath.
+
+*Verified by real test run — 115 tests, 0 failures, 0 skipped*
+• 16 :core:data — Room round-trips, ordering, search, provider scoping, TTL purge
+• 15 :app — full command runtime: routing, persistence, confirmation, refusals
+• 11 :core:database · 9 :core:common · 6 :agent:policy
+• 28 :agent:router · 20 :agent:tools (incl. 5 prompt-injection fixtures)
 • Router latency p50=0ms p95=0ms (budget 150ms)
-• 5 prompt-injection fixtures rejected
-• Log redaction strips tokens/JWTs/keys
+• Log redaction strips tokens/JWTs/keys; IDs hashed
 • Policy: external writes require confirmation; v0.1 consequential actions refused
 • Memory TTLs: session 30m, tool results 15m, inbox 24h; user facts never expire
 
-*Real bugs the tests caught and I fixed*
-1. Date parser read "2026-10-05" year digits as a clock time (20:26) — now strips dates first
-2. Bare "at 8" returned 08:00 instead of 20:00
-3. "which report ... and why did it fail?" wrongly routed to local search instead of AI
-4. Room mapper threw on malformed UUID ids — now degrades instead of crashing
-5. Memory invalidate didn't purge (strict less-than on equal timestamp)
+Earlier bugs, still fixed and covered: date parser reading year digits as a clock
+time; bare "at 8" resolving to 08:00; multi-clause questions misrouted to local
+search; Room mappers throwing on malformed UUIDs.
 
-*NOT built — Milestones 3–7*
-• AI fallback provider
-• Voice / STT
-• Inbox Agent, OAuth, WorkManager scheduling
-• Calendar sync
-• Entire Compose UI — there is NO app module
-=> This is not an installable APK yet.
+*NOT built*
+• Milestone 3 — AI fallback. No ModelProvider exists. RoutingOutcome.NeedsAi is now
+  wired and degrades to an explicit "I can only handle simple commands offline."
+  rather than failing silently.
+• Milestone 4 — voice / STT. The router takes text, so a transcript will feed it
+  unchanged once STT lands.
+• Milestone 5 — Inbox Agent, OAuth, WorkManager scheduling
+• Calendar provider sync
+• Milestone 7 — hardening beyond the security tests already listed
 
-*Verification limits*
-JVM unit tests only. No device/emulator, so real notifications, WorkManager execution, Compose rendering and package resolution are unverified.
+*Verification limits — READ THIS*
+Everything above is verified by JVM unit tests and Robolectric only.
+No emulator or device was available in the build environment, so the following
+are UNVERIFIED:
+• Real notification delivery
+• Exact-alarm timing and reboot rescheduling
+• Compose rendering and accessibility
+• PackageManager / Intent resolution against real installed apps
+• OAuth flows and token revocation
+Latency figures are unit-level and will differ on device.
 
 *Next step*
-Need Android Studio or an emulator to build the app module and UI. Want me to continue into Milestone 3 (AI fallback) or build the Compose UI first?
+Milestone 3 — the ModelProvider. It is the one seam where the app currently has to
+admit it cannot handle a request, so it has the most user-visible value.
