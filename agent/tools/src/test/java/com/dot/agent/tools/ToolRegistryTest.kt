@@ -41,6 +41,19 @@ class InputGuardsTest {
     }
 
     @Test
+    fun `well formed but unlisted package is rejected`() {
+        // Regression: matching the package regex used to be enough to admit any
+        // syntactically valid package name, which then reached Intent resolution.
+        assertThat(InputGuards.packageRef("com.evil.backdoor"))
+            .isInstanceOf(ValidationResult.Invalid::class.java)
+        assertThat(InputGuards.packageRef("com.example.malware"))
+            .isInstanceOf(ValidationResult.Invalid::class.java)
+        assertThat(InputGuards.isAllowedApp("com.evil.backdoor")).isFalse()
+        assertThat(InputGuards.isAllowedApp("youtube")).isTrue()
+        assertThat(InputGuards.isAllowedApp("com.google.android.youtube")).isTrue()
+    }
+
+    @Test
     fun `overlong query rejected`() {
         val q = "x".repeat(InputGuards.MAX_QUERY_LENGTH + 1)
         assertThat(InputGuards.query(q)).isInstanceOf(ValidationResult.Invalid::class.java)
@@ -92,6 +105,17 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun `unit input tool runs instead of throwing on the bridge`() = runTest {
+        // Regression: the registry cast every tool to a Map<String, String?>
+        // input, so get_today received an empty map and failed with
+        // ClassCastException instead of executing.
+        val reg = ToolRegistry(listOf(NoArgProbeTool()))
+        val out = reg.invoke("no_arg_probe", emptyMap())
+        assertThat(out).isInstanceOf(ToolRegistry.InvocationOutcome.Success::class.java)
+        assertThat((out as ToolRegistry.InvocationOutcome.Success).value).isEqualTo("ran")
+    }
+
+    @Test
     fun `tool failure is typed not reported as success`() = runTest {
         val reg = ToolRegistry(listOf(AlwaysFailsTool()))
         val out = reg.invoke("always_fails", emptyMap())
@@ -132,6 +156,20 @@ private class AuthGatedProbeTool : DotTool<Map<String, String?>, String> {
     override val audited = false
     override fun validate(input: Map<String, String?>) = ValidationResult.Valid
     override suspend fun execute(input: Map<String, String?>) = "ok"
+}
+
+private class NoArgProbeTool : UnitInputTool<String> {
+    override val name = "no_arg_probe"
+    override val description = "test"
+    override val category = ToolCategory.LOCAL_READ
+    override val riskLevel = com.dot.agent.policy.RiskLevel.LOW
+    override val timeoutMs = 100L
+    override val maxRetries = 0
+    override val requiresPermission = false
+    override val requiresAuth = false
+    override val audited = false
+    override fun validate(input: Unit) = ValidationResult.Valid
+    override suspend fun execute(input: Unit) = "ran"
 }
 
 private class AlwaysFailsTool : DotTool<Map<String, String?>, String> {

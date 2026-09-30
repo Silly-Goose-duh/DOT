@@ -1,12 +1,13 @@
 # DOT v0.1 — Milestone Status
 
-Last updated: 2026-09-27
+Last updated: 2026-09-30
 
-**Current state:** Milestones 0–2 complete and verified. Build is green.
+**Current state:** Milestones 0–2 complete and verified, plus an installable `:app`
+module (Compose UI, DI, command runtime, AlarmManager reminders). Build is green.
 
 | | |
 |---|---|
-| Unique tests | 82 passing, 0 failing, 0 skipped |
+| Unique tests | 115 passing, 0 failing, 0 skipped |
 | Kotlin files | 22 (14 main + 8 test) |
 | Main code | ~1,661 lines |
 | Build | `BUILD SUCCESSFUL`, `GRADLE_EXIT=0` |
@@ -52,8 +53,20 @@ Last updated: 2026-09-27
 
 ## Milestone 3 — AI fallback ❌
 
-Nothing built. `RoutingOutcome.NeedsAi` exists as a seam, but there is no
-`ModelProvider` interface or implementation yet.
+Still nothing built — no `ModelProvider`. `RoutingOutcome.NeedsAi` is now wired into
+`CommandRuntime`, where it degrades to an explicit "I can only handle simple commands
+offline." instead of a silent failure. `DotSettings.aiFallbackEnabled` is persisted
+but not yet acted on.
+
+## App module ✅ (new)
+
+- [x] `:app` module — first installable APK
+- [x] Compose UI: Today / Ask / Tasks / Notes / Settings
+- [x] `AppContainer` composition root (no DI framework)
+- [x] `CommandRuntime` — router → policy → registry → `ActionResult` → one sentence
+- [x] Reminder scheduling via AlarmManager + notification channel + boot reschedule
+- [x] Notification permission UX on Android 13+
+- [x] DataStore settings, clear-local-memory, purge-expired
 
 ## Milestone 4 — Voice ❌
 
@@ -65,11 +78,12 @@ STT exists.
 Entities (`AgentDefinition`, `AgentRun`) and a bounded-history DAO query exist.
 No scheduler, no WorkManager, no OAuth, no Inbox Agent.
 
-## Milestone 6 — Android action layer ❌
+## Milestone 6 — Android action layer ✅
 
 - [x] `open_app` tool with a 13-app alias allowlist
-- [ ] PackageManager/Intent resolution (returns the package string only)
-- [ ] Action result verification
+- [x] PackageManager/Intent resolution (`PackageVisibility`, `AppLauncher`)
+- [x] Action result verification (not-installed / no-launch-intent are typed failures)
+- [x] Allowlist closed: a well-formed but unlisted package is now rejected
 
 ## Milestone 7 — Hardening ❌
 
@@ -115,21 +129,31 @@ Two of my own tests were also wrong and were corrected rather than worked around
 `MemoryTtl` tuple syntax was invalid Kotlin, and a filler-word assertion matched "hi"
 inside "Nothing" until given word boundaries.
 
+## Bugs found by the app-module tests, and fixed
+
+8. **`open_app` accepted any well-formed package name.** `InputGuards.packageRef`
+   passed anything matching `PACKAGE_REGEX`, so `open com.evil.backdoor` was accepted,
+   returned the raw string, and the UI reported "Opening." — the opposite of the
+   documented allowlist. Now membership-only; covered by a regression test.
+9. **`get_today` never ran.** `ToolRegistry` cast every tool to a `Map<String,String?>`
+   input, so the `DotTool<Unit, _>` tool got an empty map and threw
+   `ClassCastException` on the synthetic bridge, surfacing as `tool_error`. Added the
+   `UnitInputTool` marker so the registry dispatches on the real input type.
+
 ## Not installable yet
 
-There is **no `app` module**, so this produces no APK and no UI. The PRD demo script
-cannot run. Composition UI, DI wiring, and the repository implementations that bind
-the existing ports to the Room DAOs are all still missing.
+This now produces an APK: `app/build/outputs/apk/debug/app-debug.apk`
+(`com.dot.app`, minSdk 26, targetSdk 35).
 
 ## Verification limits
 
-Everything above is verified by **JVM unit tests only**. No emulator or device was
-available in the build environment, so the following are unverified:
+Everything above is verified by **JVM unit tests and Robolectric only**. No emulator
+or device was available in the build environment, so the following are unverified:
 
 - Real notification delivery and deep-links
-- WorkManager execution and process-death recovery
+- Exact-alarm timing and reboot rescheduling on a real device
 - Compose rendering and accessibility
-- `PackageManager`/Intent resolution and package visibility
+- `PackageManager`/Intent resolution against real installed apps
 - OAuth flows and token revocation
 
 Latency figures are unit-level. On-device numbers will differ and should be measured

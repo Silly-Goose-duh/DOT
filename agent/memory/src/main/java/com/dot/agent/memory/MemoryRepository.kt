@@ -1,6 +1,7 @@
 package com.dot.agent.memory
 
 import com.dot.core.model.MemoryItem
+import com.dot.core.model.MemoryStorePort
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -57,14 +58,8 @@ data class MemoryPolicy(
         ttlFor(namespace)?.expiryFrom(now)
 }
 
-interface MemoryStore {
-    fun observeAll(): Flow<List<MemoryItem>>
-    suspend fun put(item: MemoryItem)
-    suspend fun expired(now: Instant): List<MemoryItem>
-    suspend fun purgeExpired(now: Instant): Int
-    suspend fun clearNamespace(namespace: String)
-    suspend fun clearAll()
-}
+/** Storage contract. Implemented over Room in :core:data; the port lives in core:model. */
+typealias MemoryStore = MemoryStorePort
 
 class MemoryRepository(
     private val store: MemoryStore,

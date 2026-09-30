@@ -19,6 +19,10 @@ interface TaskDao {
     @Query("SELECT * FROM tasks ORDER BY dueAtEpochMs IS NULL, dueAtEpochMs ASC")
     fun observeAll(): Flow<List<TaskEntity>>
 
+    /** One-shot read. Ports are suspending, not Flow-based; Flow is for the UI only. */
+    @Query("SELECT * FROM tasks ORDER BY dueAtEpochMs IS NULL, dueAtEpochMs ASC")
+    suspend fun all(): List<TaskEntity>
+
     @Query("SELECT * FROM tasks WHERE id = :id")
     suspend fun byId(id: String): TaskEntity?
 
@@ -46,6 +50,9 @@ interface ReminderDao {
     @Query("SELECT * FROM reminders ORDER BY remindAtEpochMs ASC")
     fun observeAll(): Flow<List<ReminderEntity>>
 
+    @Query("SELECT * FROM reminders ORDER BY remindAtEpochMs ASC")
+    suspend fun all(): List<ReminderEntity>
+
     @Query("SELECT * FROM reminders WHERE id = :id")
     suspend fun byId(id: String): ReminderEntity?
 
@@ -61,6 +68,9 @@ interface EventCacheDao {
     @Query("SELECT * FROM event_cache ORDER BY startAtEpochMs ASC")
     fun observeAll(): Flow<List<EventCacheEntity>>
 
+    @Query("SELECT * FROM event_cache ORDER BY startAtEpochMs ASC")
+    suspend fun all(): List<EventCacheEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(events: List<EventCacheEntity>)
 
@@ -75,6 +85,9 @@ interface EventCacheDao {
 interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY updatedAtEpochMs DESC")
     fun observeAll(): Flow<List<NoteEntity>>
+
+    @Query("SELECT * FROM notes ORDER BY updatedAtEpochMs DESC")
+    suspend fun all(): List<NoteEntity>
 
     @Query("SELECT * FROM notes WHERE title LIKE '%' || :q || '%' OR body LIKE '%' || :q || '%'")
     suspend fun search(q: String): List<NoteEntity>
@@ -122,10 +135,11 @@ interface MemoryDao {
     @Query("SELECT * FROM memory_items WHERE namespace = :namespace")
     fun observeNamespace(namespace: String): Flow<List<MemoryItemEntity>>
 
-    @Query("SELECT * FROM memory_items WHERE expiresAtEpochMs IS NOT NULL AND expiresAtEpochMs < :nowMs")
+    @Query("SELECT * FROM memory_items WHERE expiresAtEpochMs IS NOT NULL AND expiresAtEpochMs <= :nowMs")
     suspend fun expired(nowMs: Long): List<MemoryItemEntity>
 
-    @Query("DELETE FROM memory_items WHERE expiresAtEpochMs IS NOT NULL AND expiresAtEpochMs < :nowMs")
+    /** Inclusive: invalidate() stamps expiresAt = now, which must purge. */
+    @Query("DELETE FROM memory_items WHERE expiresAtEpochMs IS NOT NULL AND expiresAtEpochMs <= :nowMs")
     suspend fun deleteExpired(nowMs: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

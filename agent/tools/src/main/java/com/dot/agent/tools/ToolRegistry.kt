@@ -37,9 +37,15 @@ class ToolRegistry(tools: List<DotTool<*, *>>) {
         }
 
         return try {
-            @Suppress("UNCHECKED_CAST")
-            val typed = tool as DotTool<Map<String, String?>, Any?>
-            val validation = typed.validate(args)
+            // A Unit-input tool (e.g. get_today) must never receive an args map:
+            // execute(Unit) would throw a ClassCastException on the bridge method.
+            val takesArgs = tool !is UnitInputTool
+            val validation: ValidationResult = if (takesArgs) {
+                @Suppress("UNCHECKED_CAST")
+                (tool as DotTool<Map<String, String?>, Any?>).validate(args)
+            } else {
+                ValidationResult.Valid
+            }
             if (validation is ValidationResult.Invalid) {
                 InvocationOutcome.Rejected("invalid_input", "${validation.field}: ${validation.reason}")
             } else {
@@ -47,7 +53,13 @@ class ToolRegistry(tools: List<DotTool<*, *>>) {
                 var lastError: Throwable? = null
                 while (attempt <= tool.maxRetries) {
                     try {
-                        return InvocationOutcome.Success(typed.execute(args))
+                        @Suppress("UNCHECKED_CAST")
+                        val value: Any? = if (takesArgs) {
+                            (tool as DotTool<Map<String, String?>, Any?>).execute(args)
+                        } else {
+                            (tool as UnitInputTool).executeNow()
+                        }
+                        return InvocationOutcome.Success(value)
                     } catch (t: Throwable) {
                         lastError = t
                         if (t is kotlinx.coroutines.CancellationException) throw t

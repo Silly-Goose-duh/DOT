@@ -1,11 +1,10 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.ksp)
 }
 
 android {
-    namespace = "com.dot.core.database"
+    namespace = "com.dot.core.data"
     compileSdk = 35
     defaultConfig { minSdk = 26 }
     compileOptions {
@@ -17,18 +16,14 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:model"))
+    api(project(":core:database"))
+    api(project(":core:model"))
     implementation(libs.androidx.core.ktx)
-    // api, not implementation: DotDatabase extends RoomDatabase, so callers
-    // that construct an instance need Room on their compile classpath.
-    api(libs.androidx.room.runtime)
-    api(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
     implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit)
     testImplementation(libs.truth)
-    testImplementation(libs.androidx.room.testing)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core.ktx)
+    testImplementation(libs.androidx.room.testing)
     testImplementation(libs.kotlinx.coroutines.test)
 }

@@ -5,8 +5,11 @@ deterministically from local data and never require a remote model.
 
 ## Status
 
-Milestones 0-2 implemented and verified by unit tests. Milestones 3-7 are **not** built
-yet — see "What is not built" below.
+Milestones 0-2 plus the `:app` module (Compose UI, DI, command runtime, reminder
+scheduling) are implemented and verified by unit tests. Milestones 3-5 and 7 are
+**not** built yet — see "What is not built" below.
+
+**This now builds an installable APK** (`app/build/outputs/apk/debug/app-debug.apk`).
 
 ## Requirements
 
@@ -23,7 +26,7 @@ sdk.dir=D\:\\Android\\Sdk
 ## Build and test
 
 ```bash
-./gradlew :core:model:compileDebugKotlin
+./gradlew :app:assembleDebug
 ./gradlew test
 ```
 
@@ -48,6 +51,8 @@ Input -> CommandRouter
 | `agent:policy` | `PolicyEngine` — risk + confirmation, independent of the model |
 | `agent:tools` | Typed `DotTool` registry, input guards, app allowlist |
 | `agent:memory` | Persistent memory vs. TTL cache separation |
+| `core:data` | Room-backed implementations of the repository ports |
+| `app` | Compose UI, DI container, `CommandRuntime`, AlarmManager reminders |
 
 ## Security posture
 
@@ -69,10 +74,10 @@ carry explicit TTLs: session context 30 min, recent tool results 15 min, inbox s
 
 ## What is not built
 
-Milestones 3-7 remain: AI fallback provider, push-to-talk/STT, background agents
-(Inbox Agent, OAuth, WorkManager), calendar provider sync, and the Compose UI. No
-`app` module exists yet, so **this is not yet an installable APK.**
+Milestones 3-5 and 7 remain: the AI fallback provider (`RoutingOutcome.NeedsAi`
+degrades to an honest "I can only handle simple commands offline."), push-to-talk/STT,
+background agents (Inbox Agent, OAuth, WorkManager), and calendar provider sync.
 
-Verified locally: JVM unit tests only. On-device behaviour (real notifications,
-WorkManager execution, Compose rendering, package resolution) is unverified — no
-device or emulator was available in the build environment.
+Verified locally: JVM unit tests and Robolectric only. On-device behaviour (real
+notification delivery, exact-alarm timing, Compose rendering, PackageManager
+resolution) is still unverified — no device or emulator was available here.

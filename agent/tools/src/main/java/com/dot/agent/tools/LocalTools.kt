@@ -2,10 +2,14 @@ package com.dot.agent.tools
 
 import com.dot.agent.policy.RiskLevel
 import com.dot.agent.policy.ToolCategory
+import com.dot.core.model.EventRepositoryPort
 import com.dot.core.model.Note
+import com.dot.core.model.NoteRepositoryPort
 import com.dot.core.model.Reminder
+import com.dot.core.model.ReminderRepositoryPort
 import com.dot.core.model.ReminderState
 import com.dot.core.model.Task
+import com.dot.core.model.TaskRepositoryPort
 import com.dot.core.model.TodayAggregator
 import com.dot.core.model.TodaySummary
 import kotlinx.coroutines.flow.Flow
@@ -111,7 +115,7 @@ class GetTodayTool(
     private val reminderRepo: ReminderRepositoryPort,
     private val eventRepo: EventRepositoryPort,
     private val zoneId: ZoneId,
-) : (DotTool<Unit, TodaySummary>) {
+) : UnitInputTool<TodaySummary> {
     override val name = "get_today"
     override val description = "Return today's events, open tasks and reminders from local data."
     override val category = ToolCategory.LOCAL_READ
@@ -197,33 +201,14 @@ class OpenAppTool : DotTool<Map<String, String?>, String> {
 
     override suspend fun execute(input: Map<String, String?>): String {
         val ref = input["packageOrAlias"]!!.trim().lowercase()
-        return InputGuards.APP_ALIASES[ref] ?: input["packageOrAlias"]!!.trim()
+        // Alias, or an exact allowlisted package. Anything else is a miss: the
+        // previous fallback returned the caller's raw string, which let an
+        // arbitrary package name through and still reported success.
+        return InputGuards.APP_ALIASES[ref]
+            ?: InputGuards.APP_ALIASES.values.firstOrNull { it == ref }
+            ?: throw IllegalArgumentException("not an allowlisted app")
     }
 }
 
-/** Repository ports. Implementations live in core:database; tools depend only on these. */
-interface TaskRepositoryPort {
-    suspend fun insert(task: Task)
-    suspend fun update(task: Task)
-    suspend fun byId(id: UUID): Task?
-    suspend fun all(): List<Task>
-    suspend fun search(q: String): List<Pair<String, UUID>>
-    suspend fun findByTitleContains(fragment: String): Task?
-}
-
-interface ReminderRepositoryPort {
-    suspend fun insert(reminder: Reminder)
-    suspend fun all(): List<Reminder>
-    suspend fun cancel(id: UUID)
-}
-
-interface EventRepositoryPort {
-    suspend fun all(): List<com.dot.core.model.CachedEvent>
-}
-
-interface NoteRepositoryPort {
-    suspend fun insert(note: Note)
-    suspend fun search(q: String): List<Pair<String, UUID>>
-}
-
+/** Repository ports live in com.dot.core.model so :core:data can implement them. */
 internal fun parseUuidOrNull(s: String): UUID? = runCatching { UUID.fromString(s) }.getOrNull()

@@ -63,12 +63,18 @@ object InputGuards {
     fun packageRef(value: String?): ValidationResult = when {
         value.isNullOrBlank() -> ValidationResult.Invalid("packageOrAlias", "must not be blank")
         value.length > 128 -> ValidationResult.Invalid("packageOrAlias", "too long")
-        PACKAGE_REGEX.matches(value) || value in APP_ALIASES -> ValidationResult.Valid
-        else -> ValidationResult.Invalid("packageOrAlias", "not a known app alias or package name")
+        // Allowlist membership only. Matching PACKAGE_REGEX was enough to admit
+        // any syntactically valid package name (e.g. com.evil.backdoor), which
+        // then reached Intent resolution — the opposite of what this guard claims.
+        isAllowedApp(value) -> ValidationResult.Valid
+        else -> ValidationResult.Invalid("packageOrAlias", "not a supported app")
     }
 
-    private val PACKAGE_REGEX =
-        Regex("^[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)+$")
+    /** True when [value] is a known alias or one of the allowlisted packages. */
+    fun isAllowedApp(value: String): Boolean {
+        val v = value.trim().lowercase()
+        return v in APP_ALIASES || APP_ALIASES.values.any { it == v }
+    }
 
     /** v0.1 supported apps. Everything else requires clarification. */
     val APP_ALIASES: Map<String, String> = mapOf(
