@@ -7,9 +7,9 @@ module (Compose UI, DI, command runtime, AlarmManager reminders). Build is green
 
 | | |
 |---|---|
-| Unique tests | 115 passing, 0 failing, 0 skipped |
-| Kotlin files | 22 (14 main + 8 test) |
-| Main code | ~1,661 lines |
+| Unique tests | 143 passing, 0 failing, 0 skipped |
+| Kotlin files | 45 (32 main + 13 test) |
+| Main code | ~3,628 lines |
 | Build | `BUILD SUCCESSFUL`, `GRADLE_EXIT=0` |
 | Router latency | p50 = 0 ms, p95 = 0 ms (budget: 150 ms) |
 
@@ -51,12 +51,22 @@ module (Compose UI, DI, command runtime, AlarmManager reminders). Build is green
 - [x] Cancellation/timeouts — per-tool `timeoutMs` + bounded `maxRetries`
 - [x] Latency instrumentation — measured in `RouterLatencyTest`
 
-## Milestone 3 — AI fallback ❌
+## Milestone 3 — AI fallback ✅ (provider + wiring pending)
 
-Still nothing built — no `ModelProvider`. `RoutingOutcome.NeedsAi` is now wired into
-`CommandRuntime`, where it degrades to an explicit "I can only handle simple commands
-offline." instead of a silent failure. `DotSettings.aiFallbackEnabled` is persisted
-but not yet acted on.
+- [x] `ModelProvider` interface — provider-agnostic (PRD 31)
+- [x] Strict structured response schema — `ModelPlan` (ToolCall | Clarify | Answer)
+- [x] `ModelPlanParser` — validates before anything executes (14 tests)
+- [x] `AiFallback` orchestrator — provider → parser → PolicyEngine → ToolRegistry
+- [x] Timeout/failure handling — typed codes, never silent success
+- [x] Ambiguity handling — asks one question rather than guessing
+- [x] Prompt-injection tests (6 in `AiFallbackTest`, 14 in `ModelPlanParserTest`)
+- [ ] Real network provider — no HTTP implementation yet
+- [ ] Not wired into `CommandRuntime`; the fallback is built and tested but the
+      app still returns "I can only handle simple commands offline"
+
+With no provider configured the app behaves exactly as before, so nothing
+regressed. Wiring is a small change at `CommandRuntime.kt:65` once a real
+provider exists.
 
 ## App module ✅ (new)
 
@@ -108,6 +118,14 @@ These are enforced by passing tests, not just documented:
 | Tokens/JWTs/keys redacted from logs | `LogRedactorTest` |
 | IDs hashed in logs | `LogRedactorTest` |
 | Every cache namespace has an explicit TTL | `MemoryPolicyTest` |
+| Model cannot invent an unregistered tool | `AiFallbackTest` |
+| Model output validated before execution | `ModelPlanParserTest` |
+| Nested/array tool arguments rejected (smuggling) | `ModelPlanParserTest` |
+| Exactly one action key required (no hidden tool call) | `ModelPlanParserTest` |
+| Unknown top-level keys rejected, not ignored | `ModelPlanParserTest` |
+| Provider that throws is a failure, not success | `AiFallbackTest` |
+| External write via AI still demands confirmation | `AiFallbackTest` |
+| Provider only ever sees registered tool names | `AiFallbackTest` |
 | Clear-local-memory works | `MemoryRepositoryTest` |
 
 ## Bugs found by these tests, and fixed

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.dot.agent.router"
+    namespace = "com.dot.agent.llm"
     compileSdk = 35
     defaultConfig { minSdk = 26 }
     compileOptions {
