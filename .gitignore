@@ -17,3 +17,11 @@ build/
 testrun.log
 *.log
 .hermes-tmp.*
+
+# Local secrets — never commit
+local-secrets.properties
+*.keystore
+keystore.properties
+
+# Test scratch
+replay-body.json

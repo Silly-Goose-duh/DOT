@@ -42,8 +42,16 @@ data class ToolSchema(
 sealed interface ModelReply {
     data class Text(val content: String) : ModelReply
 
-    /** Typed failure. [errorCode] is a stable machine code, never free text. */
-    data class Failure(val errorCode: String, val message: String? = null) : ModelReply
+    /**
+     * Typed failure. [errorCode] is a stable machine code, never free text.
+     * [retryable] is a hint for the provider's own bounded retry loop; it is not
+     * part of the product contract and never surfaces to the user.
+     */
+    data class Failure(
+        val errorCode: String,
+        val message: String? = null,
+        val retryable: Boolean = false,
+    ) : ModelReply
 }
 
 /** Stable failure codes. Providers map their own errors onto these. */

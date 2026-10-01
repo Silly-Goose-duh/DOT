@@ -132,10 +132,14 @@ class AiFallback(
         const val SYSTEM_PROMPT =
             "You route short user requests in a personal productivity app. " +
                 "Reply with ONE JSON object and nothing else. " +
-                "Exactly one of: " +
-                "{\"tool\":\"<registered name>\",\"args\":{...}}, " +
-                "{\"question\":\"...\"} when the request is ambiguous, or " +
-                "{\"answer\":\"...\"} for a short factual reply. " +
+                "It must use exactly these key names, spelled exactly like this: " +
+                "\"tool\", \"args\", \"question\", \"answer\". " +
+                "Do not rename them. Do not use tool_code, name, function, " +
+                "parameters, input, or arguments. " +
+                "Exactly one shape: " +
+                "{\"tool\": \"<one of the listed tool names>\", \"args\": {\"key\": \"value\"}}, " +
+                "{\"question\": \"...\"} when the request is ambiguous, or " +
+                "{\"answer\": \"...\"} for a short factual reply. " +
                 "Use only the listed tools. Never invent a tool. " +
                 "Never include prose, markdown, or code outside the JSON object."
     }
