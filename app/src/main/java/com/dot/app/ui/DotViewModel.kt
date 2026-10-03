@@ -145,6 +145,18 @@ class DotViewModel(
         viewModelScope.launch { container.settings.setConfirmationsEnabled(enabled) }
     }
 
+    /**
+     * The AI toggle must reach the runtime immediately, not on next launch: the
+     * fallback is built once in the composition root, so the gate lives on the
+     * runtime and is flipped here.
+     */
+    fun setAiFallbackEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            container.settings.setAiFallbackEnabled(enabled)
+            container.refreshAiFallback(enabled)
+        }
+    }
+
     fun clearLocalMemory() {
         viewModelScope.launch {
             container.memoryRepository.clearAll()

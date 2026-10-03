@@ -25,3 +25,7 @@ keystore.properties
 
 # Test scratch
 replay-body.json
+
+# Serialized build wrapper + agent build logs
+.gradle-agent-lock/
+.gradle-agent-logs/

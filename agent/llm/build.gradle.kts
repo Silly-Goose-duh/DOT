@@ -16,9 +16,11 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:model"))
-    implementation(project(":agent:tools"))
-    implementation(project(":agent:policy"))
+    // api, not implementation: :app constructs GeminiProvider and AiFallback
+    // directly, so these types must be on its compile classpath.
+    api(project(":core:model"))
+    api(project(":agent:tools"))
+    api(project(":agent:policy"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)

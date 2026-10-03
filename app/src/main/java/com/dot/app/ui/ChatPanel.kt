@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.dot.app.voice.VoiceSessionState
 
 /**
  * Conversation surface. Chat lines carry the response sentence only — no note
@@ -40,6 +41,11 @@ fun ChatPanel(
     onSubmit: (String) -> Unit,
     onDismissConfirm: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Null hides push-to-talk entirely, e.g. when no recogniser exists. */
+    voice: VoiceSessionState? = null,
+    onVoiceTap: () -> Unit = {},
+    onVoiceRequestPermission: () -> Unit = {},
+    onVoiceOpenSettings: () -> Unit = {},
 ) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -77,6 +83,16 @@ fun ChatPanel(
                 TextButton(onClick = onDismissConfirm) { Text("Cancel") }
                 TextButton(onClick = { onSubmit("yes") }) { Text("Confirm") }
             }
+        }
+
+        if (voice != null) {
+            VoicePanel(
+                state = voice,
+                onTap = onVoiceTap,
+                onRequestPermission = onVoiceRequestPermission,
+                onOpenSettings = onVoiceOpenSettings,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
         }
 
         Row(

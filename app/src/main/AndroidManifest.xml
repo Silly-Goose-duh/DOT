@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Milestone 4: push-to-talk only. Denied mic must not break the app. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- v0.1 has no package queries; open_app uses an alias allowlist only. -->
     <queries>

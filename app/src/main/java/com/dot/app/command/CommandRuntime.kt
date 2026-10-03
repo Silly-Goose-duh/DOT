@@ -1,5 +1,7 @@
 package com.dot.app.command
 
+import com.dot.agent.llm.AiFallback
+import com.dot.agent.llm.ModelErrorCodes
 import com.dot.agent.policy.PolicyEngine
 import com.dot.agent.router.DeterministicRouter
 import com.dot.agent.router.DirectResponseFormatter
@@ -34,8 +36,39 @@ class CommandRuntime(
     private val formatter: DirectResponseFormatter,
     private val appLauncher: AppLauncher,
     private val reminderScheduler: ReminderSchedulerPort,
+    /**
+     * Optional. Null means no provider is configured, which is the honest offline
+     * state rather than a stub — the runtime then answers "I could not match that"
+     * instead of pretending. A non-null fallback never gains authority: it can
+     * only propose a registered tool, which then goes through the same policy
+     * gate and the same registry as a locally routed command.
+     */
+    private val aiFallback: com.dot.agent.llm.AiFallback? = null,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
+
+    /**
+     * The user's AI toggle, independent of whether a provider is configured. Both must
+     * be true to reach a model.
+     *
+     * Defaults to FALSE, matching `DotSettings.aiFallbackEnabled`. An earlier version
+     * defaulted this to true while the persisted setting defaulted to false, and because
+     * nothing pushed the persisted value into the runtime at startup, a fresh install
+     * sent utterances to a remote model while the Settings switch displayed "off". The
+     * safe default is the one that keeps data on the device until the user opts in.
+     */
+    @Volatile
+    var aiFallbackEnabled: Boolean = false
+
+    /**
+     * Whether policy-mandated confirmations are actually enforced.
+     *
+     * The Settings switch drove only the switch's own `checked` value; nothing read it,
+     * so turning confirmations off did nothing. Defaults to TRUE: confirmations are a
+     * safety control and must not be silently disabled by a wiring gap.
+     */
+    @Volatile
+    var confirmationsEnabled: Boolean = true
 
     sealed interface CommandTurn {
         /** The tool ran (or was correctly refused) and there is a sentence to show. */
@@ -60,10 +93,11 @@ class CommandRuntime(
             is RoutingOutcome.NeedsClarification ->
                 CommandTurn.Answer(DirectResponse.Clarification(outcome.question))
 
-            // No ModelProvider exists in v0.1, so the AI seam degrades to an
-            // honest "I could not match that" instead of a fake answer.
-            is RoutingOutcome.NeedsAi ->
-                CommandTurn.Answer(DirectResponse.Clarification(NO_MODEL_MESSAGE))
+            // The deterministic path is exhausted. Only now may a model be asked,
+            // and only to propose a tool call — the proposal is re-validated by the
+            // parser, re-gated by PolicyEngine and executed by the same registry a
+            // local command uses. With no provider the answer is an honest sentence.
+            is RoutingOutcome.NeedsAi -> handleViaAi(outcome.rawText)
 
             is RoutingOutcome.Routed -> executeRouted(outcome.command)
         }
@@ -72,6 +106,100 @@ class CommandRuntime(
     /** Runs a previously confirmed action. Only reachable after a [CommandTurn.Confirm]. */
     suspend fun confirm(pending: PendingAction): CommandTurn = withContext(dispatcher) {
         CommandTurn.Answer(runTool(pending.toolName, pending.args))
+    }
+
+    /**
+     * Bridges a model proposal into the same execution path a local command takes.
+     *
+     * The model never decides anything here. [AiFallback] has already validated the
+     * shape and consulted [PolicyEngine]; this method only translates the outcome and,
+     * critically, re-checks registry membership and the app allowlist before anything
+     * executes. A proposal naming an unregistered tool is refused here even if every
+     * earlier layer were wrong, so one missed check is not a security hole.
+     */
+    private suspend fun handleViaAi(rawText: String): CommandTurn {
+        val fallback = aiFallback
+            ?: return CommandTurn.Answer(DirectResponse.Clarification(NO_MODEL_MESSAGE))
+        if (!aiFallbackEnabled) {
+            return CommandTurn.Answer(DirectResponse.Clarification(AI_DISABLED_MESSAGE))
+        }
+
+        return when (val outcome = fallback.handle(rawText)) {
+            is AiFallback.Outcome.Clarify ->
+                CommandTurn.Answer(DirectResponse.Clarification(outcome.question))
+
+            is AiFallback.Outcome.Answer ->
+                CommandTurn.Answer(DirectResponse.Information(outcome.text))
+
+            is AiFallback.Outcome.ExecuteTool -> {
+                val spec = aiSpecFor(outcome.toolName, outcome.args)
+                    ?: return CommandTurn.Answer(
+                        DirectResponse.Information("That action isn't available yet."),
+                    )
+                if (policyEngine.isOutOfScope(spec.toolName)) {
+                    return CommandTurn.Answer(
+                        DirectResponse.Information("That action isn't available yet."),
+                    )
+                }
+                CommandTurn.Answer(runTool(spec.toolName, spec.args))
+            }
+
+            // Policy gates this tool. We ask the user and hold the action here — the
+            // model cannot approve its own request.
+            is AiFallback.Outcome.ConfirmTool -> {
+                val spec = aiSpecFor(outcome.toolName, outcome.args)
+                    ?: return CommandTurn.Answer(
+                        DirectResponse.Information("That action isn't available yet."),
+                    )
+                if (confirmationsEnabled) {
+                    CommandTurn.Confirm(
+                        prompt = outcome.prompt,
+                        pending = PendingAction(spec.toolName, spec.args, "ai: ${spec.toolName}"),
+                    )
+                } else {
+                    CommandTurn.Answer(runTool(spec.toolName, spec.args))
+                }
+            }
+
+            // Every failure is a typed code surfaced as an honest sentence. An
+            // unreachable or unconfigured provider must never look like a success.
+            is AiFallback.Outcome.Failed ->
+                CommandTurn.Answer(DirectResponse.Information(aiFailureMessage(outcome.code)))
+        }
+    }
+
+    /**
+     * Last gate before an AI-proposed tool call. Returns null unless the tool is
+     * registered AND, for open_app, allowlisted — mirroring [specFor]'s local rules.
+     */
+    private fun aiSpecFor(toolName: String, args: Map<String, String?>): ToolSpec? {
+        if (!toolRegistry.contains(toolName)) return null
+        if (toolName == "open_app") {
+            val ref = args["packageOrAlias"] ?: return null
+            if (!InputGuards.isAllowedApp(ref)) return null
+        }
+        return ToolSpec(
+            toolName = toolName,
+            args = args,
+            confirmPhrase = toolName,
+            intentLabel = "ai: $toolName",
+        )
+    }
+
+    /**
+     * Maps a stable provider error code to one short sentence. Codes stay internal
+     * (they are a diagnostics contract, not copy) so no provider name, key or internal
+     * detail reaches the chat log.
+     */
+    private fun aiFailureMessage(code: String): String = when (code) {
+        ModelErrorCodes.NOT_CONFIGURED -> "I can only handle simple commands offline."
+        ModelErrorCodes.TIMEOUT -> "That took too long. Try again."
+        ModelErrorCodes.UNAVAILABLE, ModelErrorCodes.RATE_LIMITED ->
+            "I couldn't reach the assistant. Try again shortly."
+        ModelErrorCodes.AUTH_REQUIRED -> "The assistant isn't authorised. Check settings."
+        ModelErrorCodes.MALFORMED_OUTPUT -> "I couldn't understand that. Try rephrasing."
+        "unknown_tool", "out_of_scope" -> "That action isn't available yet."
+        else -> "I couldn't do that."
     }
 
     private suspend fun executeRouted(command: RoutedCommand): CommandTurn {
@@ -106,7 +234,7 @@ class CommandRuntime(
             hasPermission = toolRegistry.permissionGranted(),
             isAuthenticated = toolRegistry.authenticated(),
         )
-        if (decision.requiresConfirmation) {
+        if (decision.requiresConfirmation && confirmationsEnabled) {
             return CommandTurn.Confirm(
                 prompt = "Confirm: ${spec.confirmPhrase}",
                 pending = PendingAction(spec.toolName, spec.args, spec.intentLabel),
@@ -145,7 +273,19 @@ class CommandRuntime(
         // Side effects the platform owns. Only reached after a successful tool call,
         // so a refused action never fires an alarm or launches an app.
         if (result.isSuccess) {
-            afterSuccess(toolName, result.value)
+            // A platform side effect can fail even when the tool succeeded, and its
+            // typed outcome must replace the tool's success rather than be dropped.
+            // Launching a package that is not installed returns UNAVAILABLE, and
+            // discarding that made the UI say "Opening." for an app that never opened.
+            val sideEffect = afterSuccess(toolName, result.value)
+            if (sideEffect != null) {
+                return formatter.format(
+                    outcome = RoutingOutcome.Routed(
+                        RoutedCommand(intent = intentFor(toolName), confidence = 1.0),
+                    ),
+                    result = sideEffect,
+                )
+            }
         }
 
         return formatter.format(
@@ -159,18 +299,28 @@ class CommandRuntime(
         )
     }
 
-    private fun afterSuccess(toolName: String, value: Any?) {
+    /**
+     * Runs the platform-owned side effect of a successful tool and returns its
+     * outcome when the side effect failed, or null when it succeeded or is not
+     * applicable. Returning null means "carry the tool's own success forward".
+     */
+    private fun afterSuccess(toolName: String, value: Any?): ActionResult<Any?>? {
         when (toolName) {
             "create_reminder" -> {
-                val r = value as? com.dot.core.model.Reminder ?: return
+                val r = value as? com.dot.core.model.Reminder ?: return null
+                // AlarmManager returns nothing, so there is no outcome to verify here.
+                // The reminder row is already persisted by the tool.
                 reminderScheduler.schedule(r)
             }
 
             "open_app" -> {
-                val pkg = value as? String ?: return
-                appLauncher.launch(pkg)
+                val pkg = value as? String ?: return null
+                val launch = appLauncher.launch(pkg)
+                @Suppress("UNCHECKED_CAST")
+                return launch as ActionResult<Any?>?
             }
         }
+        return null
     }
 
     private fun intentFor(toolName: String) = when (toolName) {
@@ -250,6 +400,7 @@ class CommandRuntime(
     private companion object {
         const val LOCAL_CONFIDENCE_THRESHOLD = 0.75
         const val NO_MODEL_MESSAGE = "I can only handle simple commands offline."
+        const val AI_DISABLED_MESSAGE = "AI help is off. Turn it on in Settings."
         const val UNSUPPORTED_INTENT = "I can't do that yet."
         /** Sentinel spec name meaning "blocked before the registry", not a real tool. */
         const val REJECTED = "__rejected__"

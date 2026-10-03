@@ -1,6 +1,8 @@
 package com.dot.core.database
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.dot.core.model.AgentDefinition
 import com.dot.core.model.AgentRun
@@ -21,7 +23,12 @@ internal fun parseUuidOrNull(raw: String): UUID? = runCatching { UUID.fromString
 internal inline fun <reified T : Enum<T>> parseEnumOr(raw: String?, fallback: T): T =
     raw?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
 
-@Entity(tableName = "tasks")
+/**
+ * v2 added `index_tasks_dueAtEpochMs`. Every home-screen read orders by
+ * `dueAtEpochMs` and the UI collects that as a Flow, so without the index SQLite
+ * re-sorts the whole table on each write. See Migrations.kt for the full rationale.
+ */
+@Entity(tableName = "tasks", indices = [Index(value = ["dueAtEpochMs"])])
 data class TaskEntity(
     @PrimaryKey val id: String,
     val title: String,
@@ -134,6 +141,14 @@ data class NoteEntity(
     val body: String,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    /**
+     * Added in schema v2. The DDL default is mandatory, not cosmetic: a NOT NULL
+     * column added by `ALTER TABLE` needs a default or SQLite refuses the
+     * statement on a non-empty table, and Room's post-migration schema check
+     * compares this string against the real column default.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val pinned: Boolean = false,
 ) {
     fun toDomain() = Note(
         id = parseUuidOrNull(id) ?: UUID.randomUUID(),

@@ -5,11 +5,14 @@ deterministically from local data and never require a remote model.
 
 ## Status
 
-Milestones 0-2 plus the `:app` module (Compose UI, DI, command runtime, reminder
-scheduling) are implemented and verified by unit tests. Milestones 3-5 and 7 are
-**not** built yet — see "What is not built" below.
+All eight milestones are implemented: the deterministic command runtime, the AI
+fallback wired behind a user toggle, push-to-talk voice, the background-agent
+framework, the Android action layer, and the hardening pass. See
+[MILESTONES.md](MILESTONES.md) for per-milestone detail and
+[docs/dot-android/SECURITY_REVIEW.md](docs/dot-android/SECURITY_REVIEW.md) for the
+security audit.
 
-**This now builds an installable APK** (`app/build/outputs/apk/debug/app-debug.apk`).
+**Builds an installable APK** (`app/build/outputs/apk/debug/app-debug.apk`).
 
 ## Requirements
 
@@ -52,8 +55,10 @@ Input -> CommandRouter
 | `agent:policy` | `PolicyEngine` — risk + confirmation, independent of the model |
 | `agent:tools` | Typed `DotTool` registry, input guards, app allowlist |
 | `agent:memory` | Persistent memory vs. TTL cache separation |
+| `agent:llm` | `ModelProvider` seam, strict plan schema, `AiFallback`, `GeminiProvider` |
+| `agent:agents` | Background-agent scheduling (WorkManager), backoff, Inbox Agent, OAuth token store |
 | `core:data` | Room-backed implementations of the repository ports |
-| `app` | Compose UI, DI container, `CommandRuntime`, AlarmManager reminders |
+| `app` | Compose UI, DI container, `CommandRuntime`, AlarmManager reminders, voice, diagnostics |
 
 ## Security posture
 
@@ -64,8 +69,14 @@ Input -> CommandRouter
   fixtures assert this (`PromptInjectionFixtureTest`).
 - Consequential actions (`send_email`, `make_purchase`, security changes) are
   out of scope for v0.1 and refused by `PolicyEngine.isOutOfScope`.
-- `LogRedactor` strips tokens/keys/JWTs from anything loggable; IDs are hashed.
-- Every action returns a typed outcome — no silent success.
+- `LogRedactor` strips tokens/keys/JWTs and spoken/typed credential phrases from
+  anything loggable; IDs are hashed.
+- Every action returns a typed outcome — no silent success. A failed app launch
+  reports as a failure rather than "Opening.".
+- A spoken transcript reaches the command runtime as **data**, through the same path
+  as typed text, gaining no extra authority for having been spoken.
+- Remote calls require the user's AI toggle **and** a compiled-in key; the toggle
+  defaults off and is applied at startup, so having a key is never treated as consent.
 
 ## Memory model
 
@@ -82,10 +93,19 @@ and correctness bugs the app-module tests caught.
 
 ## What is not built
 
-Milestones 3-5 and 7 remain: the AI fallback provider (`RoutingOutcome.NeedsAi`
-degrades to an honest "I can only handle simple commands offline."), push-to-talk/STT,
-background agents (Inbox Agent, OAuth, WorkManager), and calendar provider sync.
+- **A live inbox provider.** The agent framework, scheduling, OAuth token store,
+  summariser and cache are all built and tested, but no provider implementation is
+  configured. `AppContainer.inboxProviderOrNull()` returns null, so a scheduled run
+  resolves to "nothing to do" rather than reporting a fabricated empty inbox.
+- **Wake-word detection** — deliberately out of scope for v0.1; push-to-talk is required.
+- **Calendar provider sync** — the event cache and read path exist; no sync does.
+- **Memory writes.** `MemoryRepository` is fully built and tested, but nothing in
+  production calls `remember()` yet, so the persistent-memory store is empty until a
+  feature starts writing to it.
+- **Editing an existing task's fields.** Tasks can be created and toggled done/undone;
+  there is no field-level editor.
 
 Verified locally: JVM unit tests and Robolectric only. On-device behaviour (real
-notification delivery, exact-alarm timing, Compose rendering, PackageManager
-resolution) is still unverified — no device or emulator was available here.
+notification delivery, exact-alarm timing, Compose rendering, `PackageManager`
+resolution, `SpeechRecognizer`, WorkManager under doze) is still unverified — no
+device or emulator was available here.

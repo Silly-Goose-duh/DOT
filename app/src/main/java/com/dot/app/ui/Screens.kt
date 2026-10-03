@@ -112,6 +112,8 @@ fun SettingsScreen(
     onClearMemory: () -> Unit,
     onPurgeExpired: () -> Unit,
     onToggleConfirmations: (Boolean) -> Unit,
+    onToggleAiFallback: (Boolean) -> Unit,
+    aiAvailable: Boolean,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -149,11 +151,34 @@ fun SettingsScreen(
         }
 
         Text("AI fallback", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "No model provider ships in v0.1, so anything the deterministic router " +
-                "cannot match offline is refused rather than guessed.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        if (aiAvailable) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Use AI for complex requests")
+                    Text(
+                        "Simple commands still run locally. The assistant can only " +
+                            "propose an action you have already allowed.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                Switch(
+                    checked = state.settings.aiFallbackEnabled,
+                    onCheckedChange = onToggleAiFallback,
+                )
+            }
+        } else {
+            // Say why it is unavailable rather than showing a dead switch: the key
+            // is absent from this build, so the honest state is "not configured".
+            Text(
+                "No assistant key is configured in this build, so anything the " +
+                    "offline router cannot match is refused rather than guessed.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
 
         Text("Local memory", style = MaterialTheme.typography.titleMedium)
         Text("Purge expired cache items", style = MaterialTheme.typography.bodyMedium)

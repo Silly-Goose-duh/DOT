@@ -4,6 +4,11 @@ import android.app.Application
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class DotApplication : Application() {
 
@@ -14,6 +19,23 @@ class DotApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
         refreshCapabilityFlags()
+        applyPersistedSettings()
+    }
+
+    /**
+     * Pushes persisted user choices into the runtime at startup.
+     *
+     * Without this the AI toggle would only reach the runtime when the user
+     * touched it, leaving the runtime's own default in force for the whole first
+     * session — which is how a Settings switch can display "off" while a remote
+     * model is still being called.
+     */
+    private fun applyPersistedSettings() {
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            val first = container.settings.settings.first()
+            container.refreshAiFallback(first.aiFallbackEnabled)
+            container.commandRuntime.confirmationsEnabled = first.confirmationsEnabled
+        }
     }
 
     /**

@@ -89,6 +89,9 @@ interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY updatedAtEpochMs DESC")
     suspend fun all(): List<NoteEntity>
 
+    @Query("SELECT * FROM notes WHERE id = :id")
+    suspend fun byId(id: String): NoteEntity?
+
     @Query("SELECT * FROM notes WHERE title LIKE '%' || :q || '%' OR body LIKE '%' || :q || '%'")
     suspend fun search(q: String): List<NoteEntity>
 
@@ -97,6 +100,13 @@ interface NoteDao {
 
     @Query("DELETE FROM notes WHERE id = :id")
     suspend fun delete(id: String): Int
+
+    /** v2: pin ordering is a real query, so it is covered by the migration test. */
+    @Query("SELECT * FROM notes WHERE pinned = 1 ORDER BY updatedAtEpochMs DESC")
+    suspend fun pinned(): List<NoteEntity>
+
+    @Query("UPDATE notes SET pinned = :pinned WHERE id = :id")
+    suspend fun setPinned(id: String, pinned: Boolean): Int
 
     @Query("DELETE FROM notes")
     suspend fun clearAll(): Int
@@ -121,6 +131,17 @@ interface AgentRunDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(run: AgentRunEntity)
+
+    /**
+     * Used by process-death reconciliation. A run left RUNNING by a kill is a
+     * lie about the world: nothing is executing it, so it must be findable by
+     * status rather than only by agent id.
+     */
+    @Query("SELECT * FROM agent_runs WHERE status = 'RUNNING'")
+    suspend fun running(): List<AgentRunEntity>
+
+    @Query("SELECT * FROM agent_runs ORDER BY startedAtEpochMs DESC LIMIT 200")
+    suspend fun recent(): List<AgentRunEntity>
 
     /** Keeps history bounded; execution history is not permanent user memory. */
     @Query("DELETE FROM agent_runs WHERE agentId = :agentId AND id NOT IN (SELECT id FROM agent_runs WHERE agentId = :agentId ORDER BY startedAtEpochMs DESC LIMIT 20)")
@@ -162,7 +183,7 @@ interface MemoryDao {
         AgentRunEntity::class,
         MemoryItemEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class DotDatabase : RoomDatabase() {
